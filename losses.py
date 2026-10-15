@@ -76,9 +76,10 @@ def sphere_mse(out, target, h, w):
 
 
 BCE_loss = nn.BCEWithLogitsLoss()
+BCE_prob_loss = nn.BCELoss()  # --fix-train-bugs: the model outputs probabilities (sigmoid + IFCB blend)
 
-def BCE_L(generated, GTh):
-    loss_bce = BCE_loss(generated, GTh)
+def BCE_L(generated, GTh, on_probs=False):
+    loss_bce = (BCE_prob_loss if on_probs else BCE_loss)(generated, GTh)
     return loss_bce
 
 

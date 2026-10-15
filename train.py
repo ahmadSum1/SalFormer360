@@ -59,18 +59,24 @@ def weights_init_he(m):
             nn.init.constant_(m.bias.data, 0)
 
 
-def train_step(last_sal, gth_sal, color_image, model, BATCH_SIZE, device, optim_model, vid, fid, ifcb_image):
+def train_step(last_sal, gth_sal, color_image, model, BATCH_SIZE, device, optim_model, vid, fid, ifcb_image,
+               fix_train_bugs=False):
+    """fix_train_bugs=False reproduces the released recipe. True: BCE on the probability output
+    (nn.BCELoss instead of BCEWithLogitsLoss) and gradient clipping before optimizer.step()."""
     model.train()
     g_image = model(color_image, ifcb_image, fid)
     cc_loss = (1 - CC_Value(g_image, gth_sal)).to(device)
     kl_loss = KL_loss(g_image, gth_sal).to(device)
     s_mse_loss = sphere_mse(g_image, gth_sal, 224, 384).to(device)
-    bce_loss = BCE_L(g_image, gth_sal).to(device)
+    bce_loss = BCE_L(g_image, gth_sal, on_probs=fix_train_bugs).to(device)
     tot_loss = (kl_loss) + (cc_loss) + (s_mse_loss) + (bce_loss)
     optim_model.zero_grad()
     tot_loss.backward()
+    if fix_train_bugs:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
     optim_model.step()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    if not fix_train_bugs:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
     return tot_loss, kl_loss, cc_loss, s_mse_loss, bce_loss
 
 
@@ -83,6 +89,8 @@ def main():
     parser.add_argument("--metadata", default=HEAD_DATA)
     parser.add_argument("--bias", default=IFCB_IMAGE)
     parser.add_argument("--save-dir", default=SAVE_DIR)
+    parser.add_argument("--fix-train-bugs", action="store_true",
+                        help="BCE on probabilities + clip_grad_norm_ before step (default off = released recipe)")
     args = parser.parse_args()
 
     config = get_dataset_config(args.dataset)
@@ -167,7 +175,7 @@ def main():
 
             loss, kl_loss, cc_loss, s_mse_loss, bce_loss = train_step(
                 last_sal, gth_sal, colored_image, model, BATCH_SIZE,
-                device, optimizer, vid, fid, bias,
+                device, optimizer, vid, fid, bias, fix_train_bugs=args.fix_train_bugs,
             )
             iteration += 1
 
